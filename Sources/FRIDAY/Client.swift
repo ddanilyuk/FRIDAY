@@ -8,11 +8,12 @@
 
 import Foundation
 import Alamofire
+import Combine
 
 open class Client: RequestInterceptor {
     
     public static var shared = Client()
-        
+    
     public var session: Alamofire.Session
     public static var adapter: ((URLRequest) -> URLRequest)?
     private var queque: DispatchQueue = DispatchQueue(label: "Client.Queqeu", qos: .background, attributes: .concurrent)
@@ -53,13 +54,17 @@ open class Client: RequestInterceptor {
             if let alamofireRequest = alamofireRequest {
                 request.internalRequest = alamofireRequest
                 
+                // If using Combine
+                let responsePublisher = alamofireRequest.publishResponse(using: DataResponseSerializer())
+                request.internalResponsePublisher = responsePublisher
+                
+                // If using standart way
                 alamofireRequest.responseData { response in
                     request.internalResponse = response
                 }
             } else {
                 request.internalError = error
             }
-        
         }
         
         return request
@@ -105,7 +110,7 @@ extension Client {
                 request.formDataBuilder.fillFormData(formData, for: request)
             }, to: request.url.asURL(), interceptor: self)
             completion(alamofireRequest, nil)
-    
+            
         } else {
             let alamofireRequest = session.request(request.url.asURL(), method: method, parameters: request.parameters, encoding: request.encoding, headers: request.alamofireHeaders, interceptor: self)
             completion(alamofireRequest, nil)

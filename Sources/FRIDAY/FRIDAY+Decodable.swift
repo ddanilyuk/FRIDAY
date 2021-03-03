@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Combine
 
 public class JSONResponseParser<ParsedValue: Decodable, ErrorType: ResponseError>: ResponseParsing {
     
@@ -21,7 +22,7 @@ public class JSONResponseParser<ParsedValue: Decodable, ErrorType: ResponseError
         
         guard error == nil else {
             return .failure(ErrorType(response: response, data: data, error: error))
-        
+            
         }
         
         // TODO: add check type for Parsable is Optional<>
@@ -62,9 +63,18 @@ extension Request {
     
     @discardableResult
     public func responseJSON<Parsable: Decodable, ErrorType: ResponseError>(with decoder: JSONDecoder = JSONDecoder(),
-        completeOn queue: DispatchQueue = .main,
-        completion: @escaping (Response<Parsable, ErrorType>) -> Void) -> Self {
+                                                                            completeOn queue: DispatchQueue = .main,
+                                                                            completion: @escaping (Response<Parsable, ErrorType>) -> Void) -> Self {
         let parser = JSONResponseParser<Parsable, ErrorType>(with: decoder)
         return response(completeOn: queue, using: parser, completion: completion)
+    }
+    
+    @discardableResult
+    public func responseJSONPublisher<Parsable: Decodable,
+                                      ErrorType: ResponseError>(with decoder: JSONDecoder = JSONDecoder(),
+                                                                completeOn queue: DispatchQueue = .main) -> AnyPublisher<Parsable, ErrorType> {
+        
+        let parser = JSONResponseParser<Parsable, ErrorType>(with: decoder)
+        return responsePublisher(completeOn: queue, using: parser)
     }
 }

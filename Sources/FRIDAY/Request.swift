@@ -7,8 +7,8 @@
 //
 
 import Foundation
-
 import Alamofire
+import Combine
 
 public typealias Parameters = [String: Any]
 
@@ -62,6 +62,9 @@ open class Request {
             self.didGetResponse?()
         }
     }
+    
+    var internalResponsePublisher: DataResponsePublisher<Data>?
+    var cancellableSet: Set<AnyCancellable> = []
     
     init(
         url: URLConvertible,
@@ -164,6 +167,42 @@ extension Request {
     }
     
     @discardableResult
+    public func responsePublisher<Parser: ResponseParsing> (
+        completeOn queue: DispatchQueue = .main,
+        using parser: Parser) -> AnyPublisher<Parser.Parsable, Parser.ParsingError> {
+        
+        return Deferred {
+            Future<Parser.Parsable, Parser.ParsingError> { [weak self] promise in
+                
+                guard let self = self else {
+                    return
+                }
+                
+                self.internalResponsePublisher?.sink(receiveValue: { internalResponse in
+                    if FRIDAY.isLoggingEnabled {
+                        self.logResponse()
+                    }
+                    let result = parser.parse(
+                        request: internalResponse.request,
+                        response: internalResponse.response,
+                        data: internalResponse.data,
+                        error: internalResponse.error ?? self.internalError
+                    )
+                    
+                    let response = Response(
+                        request: internalResponse.request,
+                        response: internalResponse.response,
+                        data: internalResponse.data,
+                        result: result
+                    )
+                    promise(response.result)
+                })
+                .store(in: &self.cancellableSet)
+            }
+        }.eraseToAnyPublisher()
+    }
+    
+    @discardableResult
     public func response<Error: ResponseError> (
         completeOn queue: DispatchQueue = .main,
         completion: @escaping (Response<Data?, Error>) -> Void) -> Self {
@@ -190,14 +229,14 @@ extension Request {
         print("\(method.rawValue) \(url.asURL().absoluteString)")
         
         if let headers = headers,
-            let json = try? JSONSerialization.data(withJSONObject: headers, options: .prettyPrinted),
-            let jsonString = json.prettyPrintedJSONString {
+           let json = try? JSONSerialization.data(withJSONObject: headers, options: .prettyPrinted),
+           let jsonString = json.prettyPrintedJSONString {
             print("Headers:\n\(jsonString)")
         }
         
         if let parameters = parameters,
-            let json = try? JSONSerialization.data(withJSONObject: parameters, options: .prettyPrinted),
-            let jsonString = json.prettyPrintedJSONString {
+           let json = try? JSONSerialization.data(withJSONObject: parameters, options: .prettyPrinted),
+           let jsonString = json.prettyPrintedJSONString {
             print("Parameters:\n\(jsonString)")
         }
         
@@ -217,7 +256,7 @@ extension Request {
             print("\n\(response.statusCode) \(self.method.rawValue.uppercased()) \(url.absoluteString)")
             
             if let json = try? JSONSerialization.data(withJSONObject: response.allHeaderFields, options: .prettyPrinted),
-                let jsonString = json.prettyPrintedJSONString {
+               let jsonString = json.prettyPrintedJSONString {
                 print("\nResponse Headers: \(jsonString)")
                 
             } else {
@@ -225,7 +264,7 @@ extension Request {
             }
             
             if let json = self.internalResponse?.data,
-                let jsonString = json.prettyPrintedJSONString {
+               let jsonString = json.prettyPrintedJSONString {
                 
                 print("\nData:")
                 if jsonString.length == 0 {
